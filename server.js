@@ -2,13 +2,17 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const https = require('https');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static assets from both 'public' folder and repository root
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 // Stock mapping from ticker to Yahoo Finance PSE symbol (.PS)
 const YAHOO_PSE_MAP = {
@@ -46,7 +50,7 @@ const YAHOO_PSE_MAP = {
   '^PSEI': '^PSEI'
 };
 
-// Official benchmark fallback cache (updated automatically upon market close)
+// Official benchmark fallback cache
 let marketCache = {
   timestamp: new Date().toISOString(),
   lastSyncFormatted: 'Oct 29 3:00 PM (PSE Official)',
@@ -122,12 +126,11 @@ function fetchYahooServer(symbol) {
   });
 }
 
-// Background auto-refresh worker: Runs every 5 minutes during trading hours
+// Background auto-refresh worker: Runs every 5 minutes
 async function refreshMarketQuotes() {
   console.log(`[${new Date().toLocaleTimeString()}] Fetching live PSE market quotes directly from Yahoo Finance...`);
   let updated = 0;
 
-  // 1. Fetch PSEi
   const pseiQuote = await fetchYahooServer('^PSEI');
   if (pseiQuote && pseiQuote.price > 0) {
     marketCache.psei = {
@@ -137,20 +140,17 @@ async function refreshMarketQuotes() {
     };
   }
 
-  // 2. Fetch all mapped stock tickers in sequence to respect Yahoo rate limits
   const tickers = Object.keys(YAHOO_PSE_MAP).filter(t => t !== '^PSEI');
   for (const t of tickers) {
     const symbol = YAHOO_PSE_MAP[t];
     try {
       const q = await fetchYahooServer(symbol);
       if (q && q.price > 0) {
-        // Sanity filter
         if (t === 'BPI' && q.price > 115) continue;
         marketCache.quotes[t] = q;
         updated++;
       }
     } catch (err) {}
-    // gentle throttle
     await new Promise(r => setTimeout(r, 120));
   }
 
@@ -159,9 +159,7 @@ async function refreshMarketQuotes() {
   console.log(`[${new Date().toLocaleTimeString()}] Market sync complete: updated ${updated} tickers. PSEi: ${marketCache.psei.index}`);
 }
 
-// Initial background sync after launch
 setTimeout(refreshMarketQuotes, 3000);
-// Periodic background sync every 5 minutes
 setInterval(refreshMarketQuotes, 5 * 60 * 1000);
 
 // API Endpoints
@@ -170,23 +168,29 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/api/market/quotes', (req, res) => {
-  res.json({
-    success: true,
-    data: marketCache
-  });
+  res.json({ success: true, data: marketCache });
 });
 
 app.post('/api/market/sync', async (req, res) => {
   await refreshMarketQuotes();
-  res.json({
-    success: true,
-    data: marketCache
-  });
+  res.json({ success: true, data: marketCache });
 });
 
-// Fallback all routes to single page app
+// Fallback all routes to single page app (checks /public/index.html, /index.html, or /pse_dashboard.html)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const candidates = [
+    path.join(__dirname, 'public', 'index.html'),
+    path.join(__dirname, 'index.html'),
+    path.join(__dirname, 'pse_dashboard.html')
+  ];
+
+  for (const file of candidates) {
+    if (fs.existsSync(file)) {
+      return res.sendFile(file);
+    }
+  }
+
+  res.status(404).send('Dashboard HTML not found. Please ensure index.html exists in root or public folder.');
 });
 
 app.listen(PORT, () => {

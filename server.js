@@ -10,55 +10,25 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Serve static assets from both 'public' folder and repository root
+// Serve static assets from both 'public' and root
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
-// Stock mapping from ticker to Yahoo Finance PSE symbol (.PS)
 const YAHOO_PSE_MAP = {
-  'ALI': 'ALI.PS',
-  'BDO': 'BDO.PS',
-  'SM': 'SM.PS',
-  'BPI': 'BPI.PS',
-  'ICT': 'ICT.PS',
-  'TEL': 'TEL.PS',
-  'JFC': 'JFC.PS',
-  'AC': 'AC.PS',
-  'SMPH': 'SMPH.PS',
-  'GLO': 'GLO.PS',
-  'MER': 'MER.PS',
-  'MBT': 'MBT.PS',
-  'URC': 'URC.PS',
-  'PGOLD': 'PGOLD.PS',
-  'MEG': 'MEG.PS',
-  'RLC': 'RLC.PS',
-  'ACEN': 'ACEN.PS',
-  'AP': 'AP.PS',
-  'AEV': 'AEV.PS',
-  'DMC': 'DMC.PS',
-  'SCC': 'SCC.PS',
-  'MONDE': 'MONDE.PS',
-  'WLCON': 'WLCON.PS',
-  'BLOOM': 'BLOOM.PS',
-  'CNVRG': 'CNVRG.PS',
-  'LTG': 'LTG.PS',
-  'NIKL': 'NIKL.PS',
-  'EMI': 'EMI.PS',
-  'GTCAP': 'GTCAP.PS',
-  'AREIT': 'AREIT.PS',
-  'AETF': 'FMETF.PS',
-  '^PSEI': '^PSEI'
+  'ALI': 'ALI.PS', 'BDO': 'BDO.PS', 'SM': 'SM.PS', 'BPI': 'BPI.PS',
+  'ICT': 'ICT.PS', 'TEL': 'TEL.PS', 'JFC': 'JFC.PS', 'AC': 'AC.PS',
+  'SMPH': 'SMPH.PS', 'GLO': 'GLO.PS', 'MER': 'MER.PS', 'MBT': 'MBT.PS',
+  'URC': 'URC.PS', 'PGOLD': 'PGOLD.PS', 'MEG': 'MEG.PS', 'RLC': 'RLC.PS',
+  'ACEN': 'ACEN.PS', 'AP': 'AP.PS', 'AEV': 'AEV.PS', 'DMC': 'DMC.PS',
+  'SCC': 'SCC.PS', 'MONDE': 'MONDE.PS', 'WLCON': 'WLCON.PS', 'BLOOM': 'BLOOM.PS',
+  'CNVRG': 'CNVRG.PS', 'LTG': 'LTG.PS', 'NIKL': 'NIKL.PS', 'EMI': 'EMI.PS',
+  'GTCAP': 'GTCAP.PS', 'AREIT': 'AREIT.PS', 'AETF': 'FMETF.PS', '^PSEI': '^PSEI'
 };
 
-// Official benchmark fallback cache
 let marketCache = {
   timestamp: new Date().toISOString(),
   lastSyncFormatted: 'Oct 29 3:00 PM (PSE Official)',
-  psei: {
-    index: 5705.58,
-    change: 52.03,
-    pctChange: 0.92
-  },
+  psei: { index: 5705.58, change: 52.03, pctChange: 0.92 },
   quotes: {
     'BPI': { price: 95.00, prevClose: 94.00, change: 1.00, pctChange: 1.06 },
     'GCASH': { price: 6.69, prevClose: 6.72, change: -0.03, pctChange: -0.45 },
@@ -79,120 +49,67 @@ let marketCache = {
   }
 };
 
-// Helper: Fetch Yahoo Finance quote from server side with User-Agent header (no browser CORS blocks)
 function fetchYahooServer(symbol) {
   return new Promise((resolve) => {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-    const options = {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json'
-      },
-      timeout: 4000
-    };
-
-    https.get(url, options, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        return resolve(null);
-      }
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }, timeout: 4000 }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
       let rawData = '';
-      res.on('data', (chunk) => { rawData += chunk; });
+      res.on('data', (c) => rawData += c);
       res.on('end', () => {
         try {
           const json = JSON.parse(rawData);
-          const result = json.chart && json.chart.result && json.chart.result[0];
-          if (result && result.meta) {
-            const price = result.meta.regularMarketPrice;
-            const prevClose = result.meta.chartPreviousClose || result.meta.previousClose || price;
-            if (price !== undefined && price !== null && !isNaN(price) && price > 0) {
-              return resolve({
-                price: parseFloat(price.toFixed(2)),
-                prevClose: parseFloat(prevClose.toFixed(2)),
-                change: parseFloat((price - prevClose).toFixed(2)),
-                pctChange: prevClose > 0 ? parseFloat((((price - prevClose) / prevClose) * 100).toFixed(2)) : 0
-              });
-            }
+          const r = json.chart?.result?.[0]?.meta;
+          if (r && r.regularMarketPrice > 0) {
+            const price = r.regularMarketPrice;
+            const prev = r.chartPreviousClose || r.previousClose || price;
+            return resolve({
+              price: +price.toFixed(2),
+              prevClose: +prev.toFixed(2),
+              change: +(price - prev).toFixed(2),
+              pctChange: prev > 0 ? +(((price - prev) / prev) * 100).toFixed(2) : 0
+            });
           }
         } catch (e) {}
         resolve(null);
       });
-    }).on('error', () => {
-      resolve(null);
-    }).on('timeout', function() {
-      this.abort();
-      resolve(null);
-    });
+    }).on('error', () => resolve(null));
   });
 }
 
-// Background auto-refresh worker: Runs every 5 minutes
 async function refreshMarketQuotes() {
-  console.log(`[${new Date().toLocaleTimeString()}] Fetching live PSE market quotes directly from Yahoo Finance...`);
-  let updated = 0;
-
-  const pseiQuote = await fetchYahooServer('^PSEI');
-  if (pseiQuote && pseiQuote.price > 0) {
-    marketCache.psei = {
-      index: pseiQuote.price,
-      change: pseiQuote.change,
-      pctChange: pseiQuote.pctChange
-    };
-  }
-
-  const tickers = Object.keys(YAHOO_PSE_MAP).filter(t => t !== '^PSEI');
-  for (const t of tickers) {
-    const symbol = YAHOO_PSE_MAP[t];
-    try {
-      const q = await fetchYahooServer(symbol);
-      if (q && q.price > 0) {
-        if (t === 'BPI' && q.price > 115) continue;
-        marketCache.quotes[t] = q;
-        updated++;
-      }
-    } catch (err) {}
+  const psei = await fetchYahooServer('^PSEI');
+  if (psei) marketCache.psei = { index: psei.price, change: psei.change, pctChange: psei.pctChange };
+  for (const t of Object.keys(YAHOO_PSE_MAP).filter(x => x !== '^PSEI')) {
+    const q = await fetchYahooServer(YAHOO_PSE_MAP[t]);
+    if (q) {
+      if (t === 'BPI' && q.price > 115) continue;
+      marketCache.quotes[t] = q;
+    }
     await new Promise(r => setTimeout(r, 120));
   }
-
   marketCache.timestamp = new Date().toISOString();
-  marketCache.lastSyncFormatted = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + ' (Live Cloud Sync)';
-  console.log(`[${new Date().toLocaleTimeString()}] Market sync complete: updated ${updated} tickers. PSEi: ${marketCache.psei.index}`);
+  marketCache.lastSyncFormatted = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + ' (Cloud Sync)';
 }
 
 setTimeout(refreshMarketQuotes, 3000);
 setInterval(refreshMarketQuotes, 5 * 60 * 1000);
 
-// API Endpoints
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'pse-personal-terminal', uptime: process.uptime() });
-});
+app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'pse-personal-terminal' }));
+app.get('/api/market/quotes', (req, res) => res.json({ success: true, data: marketCache }));
+app.post('/api/market/sync', async (req, res) => { await refreshMarketQuotes(); res.json({ success: true, data: marketCache }); });
 
-app.get('/api/market/quotes', (req, res) => {
-  res.json({ success: true, data: marketCache });
-});
-
-app.post('/api/market/sync', async (req, res) => {
-  await refreshMarketQuotes();
-  res.json({ success: true, data: marketCache });
-});
-
-// Fallback all routes to single page app (checks /public/index.html, /index.html, or /pse_dashboard.html)
+// Searches public folder, root folder, or pse_dashboard.html
 app.get('*', (req, res) => {
   const candidates = [
     path.join(__dirname, 'public', 'index.html'),
     path.join(__dirname, 'index.html'),
     path.join(__dirname, 'pse_dashboard.html')
   ];
-
-  for (const file of candidates) {
-    if (fs.existsSync(file)) {
-      return res.sendFile(file);
-    }
+  for (const f of candidates) {
+    if (fs.existsSync(f)) return res.sendFile(f);
   }
-
-  res.status(404).send('Dashboard HTML not found. Please ensure index.html exists in root or public folder.');
+  res.status(404).send('Dashboard HTML not found. Please ensure index.html is uploaded to your GitHub repository.');
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 PSE Terminal Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));

@@ -1815,7 +1815,7 @@
       return '<p class="text-slate-200 leading-relaxed">' + clean + '</p>';
     }
 
-    async function callGeminiApiLive(userPrompt) {
+        async function callGeminiApiLive(userPrompt) {
       var totalStockVal = 0;
       var totalCost = 0;
       var holdingsLines = [];
@@ -1841,18 +1841,38 @@
         "SYSTEM ROLE:\n" +
         "You are an institutional Philippine Stock Exchange (PSE) wealth advisor chatting with the user. Provide exact price levels, stop losses, trigger points, and mathematical reasoning based on their active positions. Be concise and practical.";
 
-      var endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + userGeminiApiKey;
-      var response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: portfolioContext + "\n\nUSER QUESTION: " + userPrompt }] }]
-        })
-      });
+      var modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-exp'];
+      var lastErrMsg = 'Not Found';
 
-      if (!response.ok) throw new Error("Gemini API error: " + response.statusText);
-      var data = await response.json();
-      return data.candidates[0].content.parts[0].text;
+      for (var i = 0; i < modelsToTry.length; i++) {
+        var mName = modelsToTry[i];
+        try {
+          var endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + mName + ":generateContent?key=" + encodeURIComponent(userGeminiApiKey.trim());
+          var response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: portfolioContext + "\n\nUSER QUESTION: " + userPrompt }] }]
+            })
+          });
+
+          if (response.ok) {
+            var data = await response.json();
+            if (data && data.candidates && data.candidates[0] && data.candidates[0].content) {
+              return data.candidates[0].content.parts[0].text;
+            }
+          } else {
+            var errBody = await response.json().catch(function() { return null; });
+            lastErrMsg = (errBody && errBody.error && errBody.error.message) ? errBody.error.message : response.statusText;
+            if (response.status === 400 || response.status === 403) {
+              throw new Error(lastErrMsg);
+            }
+          }
+        } catch (netErr) {
+          lastErrMsg = netErr.message;
+        }
+      }
+      throw new Error(lastErrMsg);
     }
 
     async function askAiQuestion(question) {

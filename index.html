@@ -1841,7 +1841,7 @@
         "SYSTEM ROLE:\n" +
         "You are an institutional Philippine Stock Exchange (PSE) wealth advisor chatting with the user. Provide exact price levels, stop losses, trigger points, and mathematical reasoning based on their active positions. Be concise and practical.";
 
-      var endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + userGeminiApiKey;
+      var endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + userGeminiApiKey;
       var response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
